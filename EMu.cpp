@@ -29,6 +29,7 @@ If not, see <http://www.gnu.org/licenses/>.
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <limits>
 #include <sys/time.h>
 #include <stdio.h>
 #include <math.h>
@@ -277,13 +278,14 @@ int main(int argc, const char * argv[]){
     MutSpecEM myEM( Nsp, Mut, Opp);
     // if forced Nsp, try 10 random starting positions and pick the best...
     if (opts.fNsp > 0){
-      double l,b,maxb;
+      double l, b, maxb = -std::numeric_limits<double>::infinity();
       int trials=10;
       for (int t=0; t<trials; t++){
 	printf("\rRandom trial %i of %i...",t+1,trials);
 	cout<<flush;
 	myEM.pick_random_start();
 	myEM.run_em( 0, 0, l, b);
+	printf("b = %f\n", b);
 	if (t==0 || b>maxb){
 	  gsl_matrix_memcpy( best_spectra, myEM.spectra);
 	  gsl_matrix_memcpy( best_weights, myEM.weights);
