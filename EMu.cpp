@@ -494,7 +494,7 @@ void get_opts( int argc, const char ** argv, cmdl_opts& opts){
       exit(0);
     }
     else{
-      cout<<"Usage: EMu --mut demo/21_breast_cancers.mutations.txt --opp demo/21_breast_cancers.opportunity.txt --pre ./target/test"<<endl;
+      cout<<"Usage: EMu --mut <mutations.txt> --opp <opporunities.txt> [--pre <out-prefix>]"<<endl;
       exit(1);
     }
     opt_ind++;
