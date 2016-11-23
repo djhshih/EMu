@@ -63,19 +63,19 @@ void get_opts( int argc, const char ** argv, cmdl_opts& opts);
 
 // mapping mutations to 96-channels
 void mut_to_chn( cmdl_opts& opts,
-		 map<string,char>& mut_idx, 
-		 map<char,char>& base_idx);
+                 map<string,char>& mut_idx, 
+                 map<char,char>& base_idx);
 
 // mutational opportunity per fixed-sized bin
 
 void get_opp( map<char,char>& base_idx, 
-	      cmdl_opts& opts);
+              cmdl_opts& opts);
 
 // collect mutations per fixed-size bin
 void get_mut(  cmdl_opts& opts,
-	       map<string,char>& mut_idx, 
-	       map<char,char>& base_idx
-	       );
+               map<string,char>& mut_idx, 
+               map<char,char>& base_idx
+               );
 
 // get file handles to all the chromosomes
 void get_chrs(ifstream* ifs, int * start, int * stride, cmdl_opts& opts);
@@ -233,21 +233,20 @@ void get_chrs(ifstream* ifs, int * start, int * stride, cmdl_opts& opts){
 
 
 void get_regions( vector<int> * region_start,
-		  vector<int> * region_stop,
-		  cmdl_opts& opts
-		  ){
+                  vector<int> * region_stop,
+                  cmdl_opts& opts
+                  ){
   ifstream reg_ifs;
   reg_ifs.open(opts.reg_file_name,ios::in);
-  int reg_start,reg_stop;
+  int chr, reg_start,reg_stop;
   string line;
   stringstream line_ss;
-  char chr_buff[8];
   while( (line.clear(), getline( reg_ifs, line)) ){
     line_ss.clear();
     line_ss.str(line);
     // get chromosome
-    line_ss.getline( chr_buff, 8, ' ');
-    int chr = atoi(chr_buff) - 1;
+		line_ss >> chr;
+		--chr;
     // get postion
     line_ss >> reg_start >> reg_stop;
     // check
@@ -258,9 +257,11 @@ void get_regions( vector<int> * region_start,
       exit(1);
     }
     if (region_start[chr].size() > 0 && reg_start <= region_stop[chr].back()){
+			// start coordinate overlap with last region, truncate current region
       reg_start = region_stop[chr].back() + 1;
     }
     if (reg_start > reg_stop){
+			// region is invalid: skip
       continue;
     }
     region_start[chr].push_back(reg_start);
@@ -273,9 +274,9 @@ void get_regions( vector<int> * region_start,
 //*******************************************************************************************
 // translate mutation information to the 96 tri-nucleotide channel format...
 void get_mut( cmdl_opts& opts,
-	      map<string,char>& mut_idx, 
-	      map<char,char>& base_idx
-	      ){
+              map<string,char>& mut_idx, 
+              map<char,char>& base_idx
+              ){
   int no_chn = 96;
   ifstream * chr_ifs = new ifstream [opts.max_chr];
   int * start        = new int [opts.max_chr];
@@ -296,6 +297,7 @@ void get_mut( cmdl_opts& opts,
   // *** GET REGION INFORMATION ***
   vector<int> * region_start = NULL;
   vector<int> * region_stop  = NULL;
+	// FIXME calling get_regions again!
   if (opts.reg_file_name != NULL){
     region_start = new vector<int> [opts.no_chr];
     region_stop  = new vector<int> [opts.no_chr];
@@ -322,17 +324,17 @@ void get_mut( cmdl_opts& opts,
       for (int j=0; j<no_chn; j++) muts[j] = 0;
       mut_per_sample.insert(pair<string,int*>(sample,muts));
       if (opts.bin_size>0){
-	gsl_matrix ** mut_pb = new gsl_matrix * [opts.no_chr];
-	for (int chr=0; chr<opts.no_chr; chr++){
-	  // compute the number of bins in this chromosome...
-	  chr_ifs[chr].seekg( 0, chr_ifs[chr].end);
-	  last     = chr_ifs[chr].tellg();
-	  no_char  = last - start[chr] + 1;
-	  no_bases = no_char - int((double) no_char / (stride[chr]+1));	
-	  no_bins  = (int) ceil( (double) no_bases / opts.bin_size);
-	  mut_pb[chr] = gsl_matrix_calloc( no_bins, no_chn);
-	}
-	mut_per_bin.insert(pair<string,gsl_matrix**>(sample,mut_pb));
+        gsl_matrix ** mut_pb = new gsl_matrix * [opts.no_chr];
+        for (int chr=0; chr<opts.no_chr; chr++){
+          // compute the number of bins in this chromosome...
+          chr_ifs[chr].seekg( 0, chr_ifs[chr].end);
+          last     = chr_ifs[chr].tellg();
+          no_char  = last - start[chr] + 1;
+          no_bases = no_char - int((double) no_char / (stride[chr]+1));        
+          no_bins  = (int) ceil( (double) no_bases / opts.bin_size);
+          mut_pb[chr] = gsl_matrix_calloc( no_bins, no_chn);
+        }
+        mut_per_bin.insert(pair<string,gsl_matrix**>(sample,mut_pb));
       }
     }
     // get chromosome
@@ -346,20 +348,24 @@ void get_mut( cmdl_opts& opts,
     line_ss >> coord;
     // *** test if coord falls into one of the regions ***
     if (opts.reg_file_name != NULL){
-      int found=0;
+      int found = 0;
+			// FIXME inefficient
       for (int reg_ct=0; reg_ct < (int) region_start[chr].size(); reg_ct++){
-	if (coord >= region_start[chr][reg_ct] && coord <= region_stop[chr][reg_ct]){
-	  found = 1;
-	  break;
-	}
+        if (coord >= region_start[chr][reg_ct] && coord <= region_stop[chr][reg_ct]){
+          found = 1;
+          break;
+        }
       }
-      if (found == 0) continue;
+      if (found == 0) {
+				printf("\nINFO: Coordinate not found in regions: %i %i (?=%s)\n", chr+1, coord, line.c_str());
+				continue;
+			}
     }
     // get the actual mutation
     line_ss >> mut;
     if (coord <= 0) {
       printf("\nERROR: Expect 1-based coordinate system: %i %s (?=%s)\n",
-	     coord, mut.c_str(), line.c_str());
+             coord, mut.c_str(), line.c_str());
       exit(1);
     }
     // get the position of the base BEFORE the one in question in the file...
@@ -380,7 +386,7 @@ void get_mut( cmdl_opts& opts,
     //if (middle != 'A' && middle != 'C' && middle != 'G' && middle != 'T'){
     if ( NT.count(middle) == 0 ){
       printf("\nERROR: Mutation %s at position %i in chr %i in %s not possible! Reference is '%c'.\n",
-	     mut.c_str(), coord, chr+1, sample.c_str(), middle);
+             mut.c_str(), coord, chr+1, sample.c_str(), middle);
       line.clear();
       continue;
     }
@@ -389,7 +395,7 @@ void get_mut( cmdl_opts& opts,
     wt = mut[0];// the wild type base (for 'A>T' this would be 'A')
     if ( base_idx[wt] != base_idx[middle] && base_idx[wt] != (5-base_idx[middle]) ){
       printf("ERROR: Initial base (%c) at %i in chr %i different from reference (%c) in %s!\n", 
-	     mut[0], coord, chr+1, middle, sample.c_str());
+             mut[0], coord, chr+1, middle, sample.c_str());
       line.clear();
       continue;
     }
@@ -408,7 +414,7 @@ void get_mut( cmdl_opts& opts,
     idx = mut_idx[mut];
     chn = idx*16 + contxt;
     fprintf( mut_chn_fp, "%s %i %i %s %i\n", 
-	     sample.c_str(), chr+1, coord, mut.c_str(), chn);
+             sample.c_str(), chr+1, coord, mut.c_str(), chn);
     mut_per_sample[sample][chn]++;
     if (opts.bin_size>0){
       curr_bin = (unsigned int) floor((double) (coord-1) / opts.bin_size);
@@ -442,22 +448,22 @@ void get_mut( cmdl_opts& opts,
     map<string,gsl_matrix**>::iterator it;
     for (it = mut_per_bin.begin(); it != mut_per_bin.end(); ++it){
       for (int chr=0; chr<opts.no_chr; chr++){
-	string out_fn(opts.pre);
-	out_fn.append(".");
-	out_fn.append(it->first);
-	out_fn.append(".mut.");
-	char chrbuff [32];
-	sprintf( chrbuff, "chr%i.%s.txt", chr+1, opts.bin_str.c_str());
-	out_fn.append(chrbuff);
-	FILE * out_fp = fopen(out_fn.c_str(),"w");
-	for (int bin=0; bin<(int) (it->second)[chr]->size1; bin++){
-	  for (int j=0; j<no_chn; j++){
-	    fprintf( out_fp, "%i ", (int) gsl_matrix_get( (it->second)[chr], bin, j));
-	  }
-	  fprintf( out_fp, "\n");
-	}
-	fclose(out_fp);
-	gsl_matrix_free((it->second)[chr]);
+        string out_fn(opts.pre);
+        out_fn.append(".");
+        out_fn.append(it->first);
+        out_fn.append(".mut.");
+        char chrbuff [32];
+        sprintf( chrbuff, "chr%i.%s.txt", chr+1, opts.bin_str.c_str());
+        out_fn.append(chrbuff);
+        FILE * out_fp = fopen(out_fn.c_str(),"w");
+        for (int bin=0; bin<(int) (it->second)[chr]->size1; bin++){
+          for (int j=0; j<no_chn; j++){
+            fprintf( out_fp, "%i ", (int) gsl_matrix_get( (it->second)[chr], bin, j));
+          }
+          fprintf( out_fp, "\n");
+        }
+        fclose(out_fp);
+        gsl_matrix_free((it->second)[chr]);
       }
     }
   }
@@ -475,8 +481,8 @@ void get_mut( cmdl_opts& opts,
 //*******************************************************************************************
 // translate sequences to opportunity tracks, i.e. which mutational channels are open...
 void get_opp( map<char,char>& base_idx, 
-	      cmdl_opts& opts
-	      ){
+              cmdl_opts& opts
+              ){
   //
   int no_chn = 96;
   // get chrs file handles
@@ -520,10 +526,10 @@ void get_opp( map<char,char>& base_idx,
       cnv_stop.insert(pair<string,vector<int>*>(sample,stops));
       cnv_mult.insert(pair<string,vector<int>*>(sample,mults));
       if (opts.pre != NULL){
-	string ofn(opts.pre);
-	ofn.append(".");
-	ofn.append(sample);
-	sample_fn.insert(pair<string,string>(sample,ofn));
+        string ofn(opts.pre);
+        ofn.append(".");
+        ofn.append(sample);
+        sample_fn.insert(pair<string,string>(sample,ofn));
       }
     }
     line_ss >> buff;
@@ -535,12 +541,12 @@ void get_opp( map<char,char>& base_idx,
     line_ss >> cstart >> cstop >> cmult;//one-based
     if (cnv_start[sample][chr].size() > 0){
       if (cstart <= cnv_stop[sample][chr].back() || cstop <= cstart){
-	printf("ERROR: %s", line.c_str());
-	exit(1);
+        printf("ERROR: %s", line.c_str());
+        exit(1);
       }
       if (cnv_stop[sample][chr].back() == -2){
-	printf("Didn't expect another cnv region in sample %s chr %i\n", sample.c_str(), chr+1);
-	exit(1);
+        printf("Didn't expect another cnv region in sample %s chr %i\n", sample.c_str(), chr+1);
+        exit(1);
       }
     }
     cnv_start[sample][chr].push_back(cstart-1);//zero-based
@@ -554,9 +560,9 @@ void get_opp( map<char,char>& base_idx,
     string sample = samples[s];
     for(int chr=0; chr<opts.no_chr; chr++){
       if (cnv_start[sample][chr].empty()){
-	cnv_start[sample][chr].push_back(0);
-	cnv_stop[sample][chr].push_back(-2);
-	cnv_mult[sample][chr].push_back(opts.cnv_def);//default multiplier
+        cnv_start[sample][chr].push_back(0);
+        cnv_stop[sample][chr].push_back(-2);
+        cnv_mult[sample][chr].push_back(opts.cnv_def);//default multiplier
       }
       //
     }
@@ -610,10 +616,10 @@ void get_opp( map<char,char>& base_idx,
     {
       printf("Computing all opportunity for chr %2i (%i bases)", chr+1, no_bases);
       if (opts.bin_size>0){
-	no_bins  = (int) ceil( (double) no_bases / opts.bin_size);
-	printf(" in %6i bins", no_bins);
-	// allocate the opportunity track...
-	OppTrack = gsl_matrix_calloc( no_samples, no_bins*no_chn);
+        no_bins  = (int) ceil( (double) no_bases / opts.bin_size);
+        printf(" in %6i bins", no_bins);
+        // allocate the opportunity track...
+        OppTrack = gsl_matrix_calloc( no_samples, no_bins*no_chn);
       }
       cout<<endl; 
     } 
@@ -626,8 +632,8 @@ void get_opp( map<char,char>& base_idx,
       next_stop[s]  = 0;
       copy_number[s] = opts.cnv_def;//default copy number
       if ( (cnv_stop[samples[s]])[chr].back() == -2){
-	(cnv_stop[samples[s]])[chr].pop_back();
-	(cnv_stop[samples[s]])[chr].push_back(no_bases);
+        (cnv_stop[samples[s]])[chr].pop_back();
+        (cnv_stop[samples[s]])[chr].push_back(no_bases);
       }
       //dummy, never used
       (cnv_start[samples[s]])[chr].push_back(no_bases);
@@ -635,8 +641,8 @@ void get_opp( map<char,char>& base_idx,
       (cnv_mult[samples[s]])[chr].push_back(opts.cnv_def);
       // get loci of interest...
       for (int i=0; i< (int) (cnv_start[samples[s]])[chr].size(); i++){
-	loci_of_interest.push_back((cnv_start[samples[s]])[chr][i]);
-	loci_of_interest.push_back((cnv_stop[samples[s]])[chr][i] + 1);
+        loci_of_interest.push_back((cnv_start[samples[s]])[chr][i]);
+        loci_of_interest.push_back((cnv_stop[samples[s]])[chr][i] + 1);
       }
     } 
     loci_of_interest.sort();
@@ -654,32 +660,32 @@ void get_opp( map<char,char>& base_idx,
     for (int ct = first; ct < last; ct++){
       // This changes the copy number if needed...
       if (ct == loci_of_interest.front()){
-	for (int s=0; s<no_samples; s++){
-	  if( ct == (cnv_start[samples[s]])[chr][next_start[s]] ){
-	    copy_number[s] = (cnv_mult[samples[s]])[chr][next_start[s]];
-	    next_start[s]++;
-	  }
-	  else if (ct == (cnv_stop[samples[s]])[chr][next_stop[s]] + 1){
-	    copy_number[s] = opts.cnv_def;
-	    next_stop[s]++;
-	  }
-	}
-	loci_of_interest.pop_front();
+        for (int s=0; s<no_samples; s++){
+          if( ct == (cnv_start[samples[s]])[chr][next_start[s]] ){
+            copy_number[s] = (cnv_mult[samples[s]])[chr][next_start[s]];
+            next_start[s]++;
+          }
+          else if (ct == (cnv_stop[samples[s]])[chr][next_stop[s]] + 1){
+            copy_number[s] = opts.cnv_def;
+            next_stop[s]++;
+          }
+        }
+        loci_of_interest.pop_front();
       }
       // test whether within one of the regions
       if (opts.reg_file_name != NULL){
-	if (ct < region_start[chr][next_reg]){
-	  continue;
-	}
-	else if (ct == region_start[chr][next_reg]){
-	  left   = 'N';// reset at the beginning of a new region
-	  middle = 'N';
-	  right  = 'N';
-	}
-	else if (ct > region_stop[chr][next_reg]){
-	  next_reg++;
-	  continue;
-	}
+        if (ct < region_start[chr][next_reg]){
+          continue;
+        }
+        else if (ct == region_start[chr][next_reg]){
+          left   = 'N';// reset at the beginning of a new region
+          middle = 'N';
+          right  = 'N';
+        }
+        else if (ct > region_stop[chr][next_reg]){
+          next_reg++;
+          continue;
+        }
       }
       // get the next base...
       chr_ifs[chr].get(right); 
@@ -687,38 +693,38 @@ void get_opp( map<char,char>& base_idx,
       if (right!='A' && right!='C' && right!='G' && right!='T') right = 'N';
       // the tri-nucleotide must not contain a 'N'!
       if ( ct>0 && left != 'N' && middle != 'N' && right != 'N'){
-	// deciding the context...
-	if (middle == 'C' || middle == 'T'){
-	  contxt = (base_idx[left]-1)*4 + (base_idx[right] - 1);
-	}
-	else if (middle == 'G' || middle == 'A'){// the pyrimidine (C,T) is on the reverse strand
-	  contxt = (5 - base_idx[right] - 1)*4 + (5 - base_idx[left] - 1);// the contxt is also reversed
-	}
-	// deciding and updating the three channels...
-	j0 = (middle == 'C' || middle == 'G') ? 0 : 3;
-	if (OppTrack != NULL){
-	  // e.g. for bins_size = 1000, ct = 0..999 will be in curr_bin = 0
-	  curr_bin = (unsigned int) floor((double) (ct-1) / opts.bin_size);
-	  if ((int) curr_bin > old_bin){
-	    //printf("\rIn bin %6i...", curr_bin+1);
-	    //cout<<flush;
-	    old_bin=curr_bin;
-	  }
-	}
-	for (int s=0; s < no_samples; s++){
-	  for (int j = j0; j < j0+3; j++){
-	    opp_per_chr[s][j*16+contxt] += copy_number[s];
-	  }
-	}
-	if (OppTrack != NULL){
-	  for ( int s=0; s < no_samples; s++){
-	    for (int j = j0; j < j0+3; j++){
-	      idx = curr_bin * no_chn + j*16 + contxt;
-	      val = gsl_matrix_get( OppTrack, s, idx);
-	      gsl_matrix_set( OppTrack, s, idx, val + copy_number[s]);
-	    }
-	  }
-	}
+        // deciding the context...
+        if (middle == 'C' || middle == 'T'){
+          contxt = (base_idx[left]-1)*4 + (base_idx[right] - 1);
+        }
+        else if (middle == 'G' || middle == 'A'){// the pyrimidine (C,T) is on the reverse strand
+          contxt = (5 - base_idx[right] - 1)*4 + (5 - base_idx[left] - 1);// the contxt is also reversed
+        }
+        // deciding and updating the three channels...
+        j0 = (middle == 'C' || middle == 'G') ? 0 : 3;
+        if (OppTrack != NULL){
+          // e.g. for bins_size = 1000, ct = 0..999 will be in curr_bin = 0
+          curr_bin = (unsigned int) floor((double) (ct-1) / opts.bin_size);
+          if ((int) curr_bin > old_bin){
+            //printf("\rIn bin %6i...", curr_bin+1);
+            //cout<<flush;
+            old_bin=curr_bin;
+          }
+        }
+        for (int s=0; s < no_samples; s++){
+          for (int j = j0; j < j0+3; j++){
+            opp_per_chr[s][j*16+contxt] += copy_number[s];
+          }
+        }
+        if (OppTrack != NULL){
+          for ( int s=0; s < no_samples; s++){
+            for (int j = j0; j < j0+3; j++){
+              idx = curr_bin * no_chn + j*16 + contxt;
+              val = gsl_matrix_get( OppTrack, s, idx);
+              gsl_matrix_set( OppTrack, s, idx, val + copy_number[s]);
+            }
+          }
+        }
       }
       left = middle;
       middle = right;
@@ -729,30 +735,30 @@ void get_opp( map<char,char>& base_idx,
 #endif
     {
       for (int s=0; s<no_samples; s++){
-	for (int j=0; j<no_chn; j++){
-	  opp_per_sample[s][j] += opp_per_chr[s][j];
-	}
-	delete [] opp_per_chr[s];
+        for (int j=0; j<no_chn; j++){
+          opp_per_sample[s][j] += opp_per_chr[s][j];
+        }
+        delete [] opp_per_chr[s];
       }
       delete [] opp_per_chr;
     }
     // bin-wise
     if (OppTrack != NULL){
       for ( int s=0; s< no_samples; s++){
-	string fn = sample_fn[samples[s]];
-	char chrbuff [32];
-	sprintf( chrbuff, ".opp.chr%i.%s.txt", chr+1, opts.bin_str.c_str());
-	fn.append(chrbuff);
-	FILE * track_fp = fopen( fn.c_str(), "w");
-	// BINS:
-	for (int i=0; i<no_bins; i++){
-	  // CHANNELS:
-	  for (int j=0; j<no_chn; j++){
-	    fprintf( track_fp, "%i ", (int) gsl_matrix_get( OppTrack, s, i*no_chn + j));
-	  }
-	  fprintf( track_fp, "\n");
-	}
-	fclose(track_fp);
+        string fn = sample_fn[samples[s]];
+        char chrbuff [32];
+        sprintf( chrbuff, ".opp.chr%i.%s.txt", chr+1, opts.bin_str.c_str());
+        fn.append(chrbuff);
+        FILE * track_fp = fopen( fn.c_str(), "w");
+        // BINS:
+        for (int i=0; i<no_bins; i++){
+          // CHANNELS:
+          for (int j=0; j<no_chn; j++){
+            fprintf( track_fp, "%i ", (int) gsl_matrix_get( OppTrack, s, i*no_chn + j));
+          }
+          fprintf( track_fp, "\n");
+        }
+        fclose(track_fp);
       }   
       gsl_matrix_free(OppTrack);
     }
